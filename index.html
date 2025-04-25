@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script src='https://unpkg.com/panzoom@9.4.0/dist/panzoom.min.js'></script>
+  <style>
+    body, html, #scene {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      font-family: 'Roboto';
+    }
+    #scene {  
+      display: flex;
+      justify-content: center;
+    }
+    #img-main {
+    }
+    #current-audio {
+      position: fixed;
+      right: 0;
+      top: 0;
+      z-index: 100;
+    }
+    #controls {
+      z-index: 99;
+      position: fixed;
+      left: 0;
+      top: 0;
+    }
+    button#record.recording {
+      background-color: red;
+    }
+  </style>
+  <title></title>
+</head>
+<body>
+  <audio id="current-audio" src="./WhatsApp Ptt 2025-04-24 at 23.06.59.ogg" controls></audio>
+  <div id="scene">
+    <img id="img-main" src="008.jpg">
+  </div>
+  <script type="text/javascript">
+    const mainImgEl = document.querySelector('#img-main');
+    const audioEl = document.querySelector('#current-audio');
+    const pz = panzoom(mainImgEl);
+    console.log(pz)
+  </script>
+
+  <div id="controls">
+    <button id="record">Record</button>
+  </div>
+  <script type="text/javascript">
+    const recordButton = document.querySelector('button#record');
+    let currentRecording = null;
+
+    const RecordingEventType = {
+      MOUSE_MOVE: 'mousemove',
+      AUDIO_PLAY: 'audio-play',
+      AUDIO_SEEKED: 'audio-seeked',
+      AUDIO_PAUSE: 'audio-pause',
+    };
+    class Recording {
+      constructor() {
+        this.events = [];
+        this.startTime = new Date();
+        this.endTime = null;
+        this.listeners = [];
+      }
+      start() {
+        const listeners = [
+          { 
+            el: audioEl,
+            event: 'play',
+            listener: (e) => {
+              this.events.push({
+                type: RecordingEventType.AUDIO_PLAY, 
+                ts: Date.now(),
+                time: e.target.currentTime, 
+                audio: e.target.src,
+              });
+            }
+          },
+          { 
+            el: audioEl,
+            event: 'seeked',
+            listener: (e) => {
+              this.events.push({
+                type: RecordingEventType.AUDIO_SEEKED, 
+                ts: Date.now(),
+                time: e.target.currentTime, 
+              });
+            }
+          },
+          { 
+            el: audioEl,
+            event: 'pause',
+            listener: (e) => {
+              this.events.push({
+                type: RecordingEventType.AUDIO_PAUSE, 
+                ts: Date.now(),
+                time: e.target.currentTime, 
+              });
+            }
+          },
+          {
+            el: mainImgEl, 
+            event: 'mousemove', 
+            listener: ({pageX, pageY}) => {
+              // todo: convert to 0.0 - 1.0 coords
+              this.events.push({
+                type: RecordingEventType.MOUSE_MOVE,
+                ts: Date.now(),
+                x: pageX,
+                y: pageY,
+              });
+            },
+          },
+        ];
+        for (let {el, event, listener} of listeners) {
+          el.addEventListener(event, listener);
+        }
+        this.listeners = listeners
+      }
+      stop() {
+        this.endTime = new Date();
+        this.duration = (this.endTime - this.startTime) / 1000;
+        for (let {el, event, listener} of currentRecording.listeners) {
+          el.removeEventListener(event, listener);
+        }
+        console.log(this);
+      }
+    }
+    function toggleRecord(e) {
+      console.log(e);
+      recordButton.classList.toggle('recording');
+      if (!audioEl.paused) {
+        audioEl.pause();
+      }
+      if (currentRecording === null) {
+        currentRecording = new Recording();
+        console.log(currentRecording);
+        currentRecording.start();
+      } else {
+        currentRecording.stop();
+        addRecording(currentRecording);
+        currentRecording = null;
+      }
+    };
+    recordButton.onclick = toggleRecord;
+    window.addEventListener('keypress', function (e) {
+      if (e.code === 'KeyR') {
+        toggleRecord(e);
+      }
+    });
+  </script>
+
+  <style>
+    #recordings-container {
+      position: fixed;
+      left: 0;
+      bottom: 0;
+      background-color: rgba(0, 0, 0, 0.7);
+      color: white;
+    }
+    #recordings-container > ul {
+      padding: 0.5rem;
+      margin: 0;
+      list-style: none;
+      padding-bottom: 1rem;
+    }
+    #recordings-container > h4 {
+      margin: 0.5rem;
+      padding: 0;
+    }
+    #recordings-container > ul > li {
+      /* a room for play progress bar */
+      padding-bottom: 0.8rem;
+      position: relative;
+    }
+  </style>
+  <div id="recordings-container">
+    <template id="recording-item">
+      <li>
+        #<span class="number"></span>
+        <span style="font-size: 0.9em;">Recorded at</span>
+        <span class="start-time"></span>
+        <span style="font-style: italic; font-size: 0.9em">
+          (<span class="duration"></span>)
+        </span>
+      </li>
+    </template>
+    <h4>Recordings</h4>
+    <hr>
+    <ul id="recordings"></ul>
+  </div>
+  <script type="text/javascript">
+    const recordings = [];
+    const recordingItemTemplate = document.querySelector('template#recording-item');
+    const recordingsListEl = document.querySelector('#recordings');
+    function addRecording(recording) {
+      if (recording.duration < 1) {
+        alert(`Recording duration is less than 1 second, ignoring... \n${JSON.stringify(recording, null, 2)}`);
+        return;
+      }
+      recordings.push(recording);
+      const recordingIndex = recordings.length-1;
+      
+      const itemEl = recordingItemTemplate.content.cloneNode(true).querySelector('li');
+      
+      itemEl.dataset.recordingIndex = recordingIndex;
+
+      itemEl.querySelector('.number').innerText = recordingIndex+1;
+
+      const twoDigitPad = (n) => n.toString().padStart(2, '0');
+      
+      function getStartTime(ts = recording.startTime) {
+        return [
+          recording.startTime.getHours(),
+          recording.startTime.getMinutes(),
+          recording.startTime.getSeconds(),
+        ].map(twoDigitPad).join(':');
+      }
+      itemEl.querySelector('.start-time').innerText = getStartTime();
+      
+      function getDuration(d = recording.duration) {
+        const seconds = Math.round(d % 60);
+        const minutes = Math.floor(d / 60 % 60);
+        const hours = Math.floor(d / 60 / 60);
+        const parts = [minutes, seconds]
+        if (hours !== 0) {
+          parts.push(hours, 0);
+        }
+        return parts.map(twoDigitPad).join(':'); 
+      }
+      itemEl.querySelector('.duration').innerText = getDuration();
+
+      recordingsListEl.appendChild(itemEl);
+    }
+  </script>
+
+  <style>
+    #play-cursor {
+      position: absolute;
+      display: none;
+    }
+    #play-cursor::after {
+      content: '👆🏻';
+      position: absolute;
+      left: 0;
+      top: 0;
+      font-size: 2rem;
+    }
+    #play-cursor.playing {
+      display: block;
+    }
+    #recordings-container > ul > li.playing {
+      background-color: rgba(255, 255, 0, 0.7);
+    }
+    #list-item-progress {
+      width: 100%;
+      display: none;
+      position: absolute;
+      bottom: 0;
+    }
+    #list-item-progress.active {
+      display: block;
+    }
+  </style>
+  <span id="play-cursor"></span>
+  <progress id="list-item-progress" max="1000"></progress>
+  <script type="text/javascript">
+    let playingRecording = null;
+    const playCursorEl = document.querySelector('#play-cursor');
+    const listItemProgressEl = document.querySelector('#list-item-progress');
+    recordingsListEl.addEventListener('click', function(e) {
+      console.log(e);
+      const el = e.target.closest('li');
+      if (!el) {
+        return;
+      }
+      const recordingIndex = +el.dataset.recordingIndex;
+      console.assert(typeof recordingIndex === 'number');
+      play(recordings[recordingIndex], el);
+    })
+    function play(recording, listItem) {
+      // if (playingRecording) {
+      //   playingRecording.end();
+      // }
+      const {events} = recording;
+
+      // todo: check if already playing something
+      const playStart = Date.now();
+      
+      listItem.classList.add('playing');
+      console.log('playing', recording);
+      playCursorEl.classList.add('playing');
+      listItem.appendChild(listItemProgressEl);
+      listItemProgressEl.classList.add('active');
+      listItemProgressEl.value = 0;
+
+      function endPlaying() {
+        listItemProgressEl.classList.remove('active');
+        listItem.classList.remove('playing');
+        playCursorEl.classList.remove('playing');
+        clearInterval(progressInterval);
+        if (eventsInterval) clearInterval(eventsInterval);
+        console.log('end playing:', recording);
+
+      }
+      const progressInterval = setInterval(function updateProgress() {
+        const progress = (Date.now() - playStart) / 1000 / recording.duration;
+        listItemProgressEl.value = progress * listItemProgressEl.max;
+        if (progress >= 1.0) {
+          endPlaying();
+        }
+      }, 20);
+
+      let eventsInterval = null;
+      const firstEvent = events[0];
+      if (firstEvent) {
+        let currentEventIndex = 1;
+        eventsInterval = setTimeout(function playStep() {
+          const curEvent = events[currentEventIndex++];
+          console.log('curEvent:', currentEventIndex, curEvent);
+          const {type, ts} = curEvent;
+          switch (type) {
+            case RecordingEventType.MOUSE_MOVE: {
+              const {x, y} = curEvent;
+              playCursorEl.style.left = `${x}px`;
+              playCursorEl.style.top = `${y}px`;
+              break;
+            }
+            case RecordingEventType.AUDIO_PLAY: {
+              const {time, audio} = curEvent;
+              audioEl.src = audio;
+              audioEl.currentTime = time;
+              audioEl.play();
+              break;
+            }
+            case RecordingEventType.AUDIO_PAUSE: {
+              const {time} = curEvent;
+              audioEl.pause();
+              break;
+            }
+            case RecordingEventType.AUDIO_SEEKED: {
+              const {time, audio} = curEvent;
+              audioEl.currentTime = time;
+              break;
+            }
+          }
+
+          const nextEvent = events[currentEventIndex];
+          if (nextEvent) {
+            // todo: поправка на playStart
+            const nextStepDur = nextEvent.ts - ts;
+            setTimeout(playStep, nextStepDur);
+          }
+        }, (firstEvent.ts - recording.startTime));
+      }
+
+      playingRecording = {
+        start: playStart,
+        recording,
+        end: endPlaying,
+        progressInterval,
+        eventsInterval,
+      };
+    }
+  </script>
+</body>
+</html>
