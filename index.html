@@ -44,8 +44,25 @@
   <script type="text/javascript">
     const mainImgEl = document.querySelector('#img-main');
     const audioEl = document.querySelector('#current-audio');
-    const pz = panzoom(mainImgEl);
+    const pz = panzoom(mainImgEl, {
+      // disable arrows and +/- keypress handling
+      filterKey: function (e) {
+        return true;
+      }
+    });
     console.log(pz)
+
+    function toggleAudioPlay(e) {
+      if (!audioEl.paused) {
+        audioEl.pause();
+      } else {
+        audioEl.play();
+      }
+    }
+    const AUDIO_PLAY_STEP_SHOT = 5;
+    function audioSeekRelative(e, step) {
+      audioEl.currentTime = Math.max(0, audioEl.currentTime + step);
+    }
   </script>
 
   <div id="controls">
@@ -55,11 +72,55 @@
     const recordButton = document.querySelector('button#record');
     let currentRecording = null;
 
+    function toggleRecord(e) {
+      console.log(e);
+      recordButton.classList.toggle('recording');
+      if (currentRecording === null) {
+        currentRecording = new Recording();
+        console.log(currentRecording);
+        currentRecording.start();
+        if (!audioEl.paused) {
+          audioEl.pause();
+          audioEl.play();
+        }
+      } else {
+        if (!audioEl.paused) {
+          audioEl.pause();
+        }
+        currentRecording.stop();
+        addRecording(currentRecording);
+        currentRecording = null;
+      }
+    };
+    recordButton.onclick = toggleRecord;
+    window.addEventListener('keypress', function (e) {
+      console.log(e);
+      if (e.code === 'KeyR') {
+        return toggleRecord(e);
+      }
+
+      if (e.code === 'Space') {
+        e.preventDefault();
+        return toggleAudioPlay(e);
+      }
+    });
+    window.addEventListener('keydown', function (e) {
+      console.log(e);
+      if (e.code === 'ArrowLeft') {
+        e.preventDefault();
+        return audioSeekRelative(e, -AUDIO_PLAY_STEP_SHOT);
+      } else if (e.code === 'ArrowRight') {
+        e.preventDefault();
+        return audioSeekRelative(e, AUDIO_PLAY_STEP_SHOT);
+      }
+    });
+
     const RecordingEventType = {
       MOUSE_MOVE: 'mousemove',
       AUDIO_PLAY: 'audio-play',
       AUDIO_SEEKED: 'audio-seeked',
       AUDIO_PAUSE: 'audio-pause',
+      KEY: 'key',
     };
     class Recording {
       constructor() {
@@ -70,6 +131,19 @@
       }
       start() {
         const listeners = [
+          {
+            el: window,
+            event: 'keydown',
+            listener: (e) => {
+              if (['KeyR', 'Space', 'ArrowLeft', 'ArrowRight'].includes(e.code)) {
+                this.events.push({
+                  type: RecordingEventType.KEY,
+                  ts: Date.now(),
+                  code: e.code,
+                })
+              }
+            }
+          },
           { 
             el: audioEl,
             event: 'play',
@@ -132,28 +206,6 @@
         console.log(this);
       }
     }
-    function toggleRecord(e) {
-      console.log(e);
-      recordButton.classList.toggle('recording');
-      if (!audioEl.paused) {
-        audioEl.pause();
-      }
-      if (currentRecording === null) {
-        currentRecording = new Recording();
-        console.log(currentRecording);
-        currentRecording.start();
-      } else {
-        currentRecording.stop();
-        addRecording(currentRecording);
-        currentRecording = null;
-      }
-    };
-    recordButton.onclick = toggleRecord;
-    window.addEventListener('keypress', function (e) {
-      if (e.code === 'KeyR') {
-        toggleRecord(e);
-      }
-    });
   </script>
 
   <style>
@@ -347,6 +399,12 @@
             case RecordingEventType.AUDIO_SEEKED: {
               const {time, audio} = curEvent;
               audioEl.currentTime = time;
+              break;
+            }
+            case RecordingEventType.KEY: {
+              const {code} = curEvent;
+              // todo:
+              console.log('show', code, 'pressed')
               break;
             }
           }
