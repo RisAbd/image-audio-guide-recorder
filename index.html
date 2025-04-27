@@ -37,7 +37,36 @@
   <title></title>
 </head>
 <body>
-  <audio id="current-audio" src="./WhatsApp Ptt 2025-04-24 at 23.06.59.ogg" controls></audio>
+  <script type="text/javascript">
+     function throttle(fn, delay) {
+        let lastArgs = null;
+        let timeoutId = null;
+        let lastCallTime = 0;
+
+        return function (...args) {
+            const now = Date.now();
+            const timeSinceLastCall = now - lastCallTime;
+
+            if (timeSinceLastCall >= delay) {
+                fn.apply(this, args);          // Сразу вызываем
+                lastCallTime = now;
+            } else {
+                lastArgs = args;
+                if (!timeoutId) {
+                    timeoutId = setTimeout(() => {
+                        fn.apply(this, lastArgs);
+                        lastCallTime = Date.now();
+                        timeoutId = null;
+                        lastArgs = null;
+                    }, delay - timeSinceLastCall);
+                }
+            }
+        };
+    }
+
+  </script>
+
+  <audio id="current-audio" src="./WhatsApp Ptt 2025-04-24 at 21.53.51.ogg" controls></audio>
   <div id="scene">
     <img id="img-main" src="008.jpg">
   </div>
@@ -48,9 +77,18 @@
       // disable arrows and +/- keypress handling
       filterKey: function (e) {
         return true;
-      }
+      },
+      // disable double click zoom
+      zoomDoubleClickSpeed: 1, 
     });
+    pz.addEventListener = pz.on;
+    pz.removeEventListener = pz.off;
     console.log(pz)
+
+    function setPZ({x, y, scale}) {
+      pz.zoomAbs(x, y, scale);
+      pz.moveTo(x, y);
+    }
 
     function toggleAudioPlay(e) {
       if (!audioEl.paused) {
@@ -121,16 +159,36 @@
       AUDIO_SEEKED: 'audio-seeked',
       AUDIO_PAUSE: 'audio-pause',
       KEY: 'key',
+      PZ_TRANSFORM: 'pz-transform',
+      CLICK: 'click',
     };
     class Recording {
       constructor() {
-        this.events = [];
-        this.startTime = new Date();
         this.endTime = null;
-        this.listeners = [];
+        this.startConfig = {
+          time: Date.now(),
+          image: mainImgEl.src,
+          pz: pz.getTransform(),
+        };
+        this.events = [];
+        this._listeners = [];
+      }
+      _getTs(ts = Date.now()) {
+        return ts - this.startConfig.time;
       }
       start() {
         const listeners = [
+          {
+            el: pz,
+            event: 'transform',
+            listener: throttle((e) => {
+              this.events.push({
+                type: RecordingEventType.PZ_TRANSFORM,
+                ts: this._getTs(),
+                ...pz.getTransform(),
+              });
+            }, 30),
+          },
           {
             el: window,
             event: 'keydown',
@@ -138,11 +196,11 @@
               if (['KeyR', 'Space', 'ArrowLeft', 'ArrowRight'].includes(e.code)) {
                 this.events.push({
                   type: RecordingEventType.KEY,
-                  ts: Date.now(),
+                  ts: this._getTs(),
                   code: e.code,
-                })
+                });
               }
-            }
+            },
           },
           { 
             el: audioEl,
@@ -150,11 +208,11 @@
             listener: (e) => {
               this.events.push({
                 type: RecordingEventType.AUDIO_PLAY, 
-                ts: Date.now(),
+                ts: this._getTs(),
                 time: e.target.currentTime, 
                 audio: e.target.src,
               });
-            }
+            },
           },
           { 
             el: audioEl,
@@ -162,10 +220,10 @@
             listener: (e) => {
               this.events.push({
                 type: RecordingEventType.AUDIO_SEEKED, 
-                ts: Date.now(),
+                ts: this._getTs(),
                 time: e.target.currentTime, 
               });
-            }
+            },
           },
           { 
             el: audioEl,
@@ -173,19 +231,38 @@
             listener: (e) => {
               this.events.push({
                 type: RecordingEventType.AUDIO_PAUSE, 
-                ts: Date.now(),
+                ts: this._getTs(),
                 time: e.target.currentTime, 
               });
-            }
+            },
           },
           {
             el: mainImgEl, 
             event: 'mousemove', 
-            listener: ({pageX, pageY}) => {
+            listener: throttle((e) => {
+              const {pageX, pageY, clientX, clientY, x, y} = e;
+              console.log(pageX, pageY, clientX, clientY, x, y);
+
               // todo: convert to 0.0 - 1.0 coords
               this.events.push({
                 type: RecordingEventType.MOUSE_MOVE,
-                ts: Date.now(),
+                ts: this._getTs(),
+                x: pageX,
+                y: pageY,
+              });
+            }, 30),
+          },
+          {
+            el: mainImgEl, 
+            event: 'click', 
+            listener: (e) => {
+              const {pageX, pageY, clientX, clientY, x, y} = e;
+              console.log(pageX, pageY, clientX, clientY, x, y);
+
+              // todo: convert to 0.0 - 1.0 coords
+              this.events.push({
+                type: RecordingEventType.CLICK,
+                ts: this._getTs(),
                 x: pageX,
                 y: pageY,
               });
@@ -195,15 +272,16 @@
         for (let {el, event, listener} of listeners) {
           el.addEventListener(event, listener);
         }
-        this.listeners = listeners
+        this._listeners = listeners
       }
       stop() {
-        this.endTime = new Date();
-        this.duration = (this.endTime - this.startTime) / 1000;
-        for (let {el, event, listener} of currentRecording.listeners) {
+        this.endTime = Date.now();
+        this.duration = (this.endTime - this.startConfig.time) / 1000;
+        for (let {el, event, listener} of this._listeners) {
           el.removeEventListener(event, listener);
         }
         console.log(this);
+        this._listeners = [];
       }
     }
   </script>
@@ -241,6 +319,7 @@
         <span style="font-style: italic; font-size: 0.9em">
           (<span class="duration"></span>)
         </span>
+        <button class="delete">❌</button>
       </li>
     </template>
     <h4>Recordings</h4>
@@ -248,17 +327,14 @@
     <ul id="recordings"></ul>
   </div>
   <script type="text/javascript">
-    const recordings = [];
+    const RECORDINGS_KEY = 'recordings';
+    let recordings = [];
+    function saveRecordings() {
+      localStorage.setItem(RECORDINGS_KEY, JSON.stringify(recordings));
+    }
     const recordingItemTemplate = document.querySelector('template#recording-item');
     const recordingsListEl = document.querySelector('#recordings');
-    function addRecording(recording) {
-      if (recording.duration < 1) {
-        alert(`Recording duration is less than 1 second, ignoring... \n${JSON.stringify(recording, null, 2)}`);
-        return;
-      }
-      recordings.push(recording);
-      const recordingIndex = recordings.length-1;
-      
+    function renderRecording(recording, recordingIndex) {
       const itemEl = recordingItemTemplate.content.cloneNode(true).querySelector('li');
       
       itemEl.dataset.recordingIndex = recordingIndex;
@@ -267,11 +343,11 @@
 
       const twoDigitPad = (n) => n.toString().padStart(2, '0');
       
-      function getStartTime(ts = recording.startTime) {
+      function getStartTime(ts = new Date(recording.startConfig.time)) {
         return [
-          recording.startTime.getHours(),
-          recording.startTime.getMinutes(),
-          recording.startTime.getSeconds(),
+          ts.getHours(),
+          ts.getMinutes(),
+          ts.getSeconds(),
         ].map(twoDigitPad).join(':');
       }
       itemEl.querySelector('.start-time').innerText = getStartTime();
@@ -289,6 +365,31 @@
       itemEl.querySelector('.duration').innerText = getDuration();
 
       recordingsListEl.appendChild(itemEl);
+
+      const deleteButton = itemEl.querySelector('button.delete');
+      deleteButton.onclick = function (e) {
+        e.stopPropagation();
+        if (confirm(`delete recording: #${recordingIndex} (${getStartTime()})`)) {
+          recordings = recordings.filter(i => i !== recording);
+          saveRecordings();
+          itemEl.remove();
+        }
+      }
+    }
+    function addRecording(recording) {
+      if (recording.duration < 1) {
+        alert(`Recording duration is less than 1 second, ignoring... \n${JSON.stringify(recording, null, 2)}`);
+        return;
+      }
+      recordings.push(recording);
+      saveRecordings();
+      const recordingIndex = recordings.length-1;
+      renderRecording(recording, recordingIndex);
+    }
+
+    if (localStorage.hasOwnProperty('recordings')) {
+      recordings = JSON.parse(localStorage.getItem(RECORDINGS_KEY));
+      recordings.forEach(renderRecording)
     }
   </script>
 
@@ -337,13 +438,19 @@
       play(recordings[recordingIndex], el);
     })
     function play(recording, listItem) {
-      // if (playingRecording) {
-      //   playingRecording.end();
-      // }
+      if (playingRecording) {
+        playingRecording.end();
+        playingRecording = null;
+      }
       const {events} = recording;
 
       // todo: check if already playing something
       const playStart = Date.now();
+      const getCurrentTime = () => {
+        return Date.now() - playStart;
+      };
+      mainImgEl.src = recording.startConfig.image;
+      setPZ(recording.startConfig.pz);
       
       listItem.classList.add('playing');
       console.log('playing', recording);
@@ -359,10 +466,11 @@
         clearInterval(progressInterval);
         if (eventsInterval) clearInterval(eventsInterval);
         console.log('end playing:', recording);
-
+        // kek
+        if (!audioEl.paused) {audioEl.pause();};
       }
       const progressInterval = setInterval(function updateProgress() {
-        const progress = (Date.now() - playStart) / 1000 / recording.duration;
+        const progress = getCurrentTime() / 1000 / recording.duration;
         listItemProgressEl.value = progress * listItemProgressEl.max;
         if (progress >= 1.0) {
           endPlaying();
@@ -374,48 +482,72 @@
       if (firstEvent) {
         let currentEventIndex = 1;
         eventsInterval = setTimeout(function playStep() {
-          const curEvent = events[currentEventIndex++];
-          console.log('curEvent:', currentEventIndex, curEvent);
-          const {type, ts} = curEvent;
-          switch (type) {
-            case RecordingEventType.MOUSE_MOVE: {
-              const {x, y} = curEvent;
-              playCursorEl.style.left = `${x}px`;
-              playCursorEl.style.top = `${y}px`;
+          const curTime = getCurrentTime();
+          const eventsToPlay = [];
+          for (;currentEventIndex < events.length; currentEventIndex++) {
+            const curEvent = events[currentEventIndex];
+            if (curEvent.ts > curTime) {
               break;
             }
-            case RecordingEventType.AUDIO_PLAY: {
-              const {time, audio} = curEvent;
-              audioEl.src = audio;
-              audioEl.currentTime = time;
-              audioEl.play();
-              break;
-            }
-            case RecordingEventType.AUDIO_PAUSE: {
-              const {time} = curEvent;
-              audioEl.pause();
-              break;
-            }
-            case RecordingEventType.AUDIO_SEEKED: {
-              const {time, audio} = curEvent;
-              audioEl.currentTime = time;
-              break;
-            }
-            case RecordingEventType.KEY: {
-              const {code} = curEvent;
-              // todo:
-              console.log('show', code, 'pressed')
-              break;
-            }
+            eventsToPlay.push(curEvent);
           }
+          console.assert(eventsToPlay.length === 0, eventsToPlay, currentEventIndex);
+
+          eventsToPlay.forEach((event) => {
+            switch (event.type) {
+              case RecordingEventType.MOUSE_MOVE: {
+                const {x, y} = event;
+                playCursorEl.style.left = `${x}px`;
+                playCursorEl.style.top = `${y}px`;
+                break;
+              }
+              case RecordingEventType.CLICK: {
+                // todo:
+                const {x, y} = event;
+                playCursorEl.style.left = `${x}px`;
+                playCursorEl.style.top = `${y}px`;
+                break;
+              }
+              case RecordingEventType.AUDIO_PLAY: {
+                const {time, audio} = event;
+                audioEl.src = audio;
+                audioEl.currentTime = time;
+                audioEl.play();
+                break;
+              }
+              case RecordingEventType.AUDIO_PAUSE: {
+                const {time} = event;
+                audioEl.pause();
+                break;
+              }
+              case RecordingEventType.AUDIO_SEEKED: {
+                const {time, audio} = event;
+                audioEl.currentTime = time;
+                break;
+              }
+              case RecordingEventType.KEY: {
+                const {code} = event;
+                // todo:
+                console.log('show', code, 'pressed')
+                break;
+              }
+              case RecordingEventType.PZ_TRANSFORM: {
+                const {x, y, scale} = event;
+                // pz.moveTo(x, y);
+                // pz.zoomAbs(x, y, scale);
+                setPZ({x, y, scale});
+                break;
+              }
+            }
+          });
 
           const nextEvent = events[currentEventIndex];
           if (nextEvent) {
             // todo: поправка на playStart
-            const nextStepDur = nextEvent.ts - ts;
-            setTimeout(playStep, nextStepDur);
+            const nextStepDur = nextEvent.ts - curTime;
+            eventsInterval = setTimeout(playStep, nextStepDur);
           }
-        }, (firstEvent.ts - recording.startTime));
+        }, (firstEvent.ts));
       }
 
       playingRecording = {
@@ -424,6 +556,7 @@
         end: endPlaying,
         progressInterval,
         eventsInterval,
+        getCurrentTime,
       };
     }
   </script>
